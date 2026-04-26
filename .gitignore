@@ -1,0 +1,13 @@
+node_modules/
+dist/
+data/state.json
+data/livestream.db
+data/livestream.db-shm
+data/livestream.db-wal
+data/receipts/
+*.log
+.DS_Store
+projects/
+memory/
+.openclaw/
+.env
