@@ -24,11 +24,11 @@ function relTime(iso) {
   return `${Math.floor(m / 60)}h`
 }
 
-function Card({ item, isLatest, done, spinning, onConfirm, onAvatarTap }) {
+function Card({ item, isLatest, isFlash, done, spinning, onConfirm, onAvatarTap }) {
   const initials = (item.customerName || '?')[0].toUpperCase()
   const isBlacklisted = item.blacklisted
   return (
-    <div className={`card${isLatest ? ' card--latest' : ''}${done ? ' card--done' : ''}${isBlacklisted ? ' card--blacklisted' : ''} fade-in`}>
+    <div className={`card${isLatest ? ' card--latest' : ''}${isFlash ? ' card--flash' : ''}${done ? ' card--done' : ''}${isBlacklisted ? ' card--blacklisted' : ''} fade-in`}>
       {isBlacklisted && <div className="card__warning">⚠️ BOM HÀNG</div>}
       {item.avatarUrl ? (
         <>
@@ -111,6 +111,7 @@ export default function App() {
   const [autoScroll, setAutoScroll] = useState(true)
   const [latestId, setLatestId] = useState(null)
   const [popup, setPopup] = useState(null) // { item, position: {x, y} }
+  const [flashIds, setFlashIds] = useState(new Set())
   const [printError, setPrintError] = useState(null)
 
   const latestRef = useRef(null)
@@ -127,7 +128,7 @@ export default function App() {
       const pending = data.pendingComments || []
       const confirmed = data.confirmedOrders || []
 
-      // Sort all by createdAt ascending
+      // Sort all by createdAt descending (newest on top)
       const all = [...pending, ...confirmed].sort(
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
       )
@@ -140,7 +141,7 @@ export default function App() {
       setLoading(false)
 
       // Latest pending
-      const lastPending = pending.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).slice(-1)[0]
+      const lastPending = pending.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
       if (lastPending) setLatestId(lastPending.id)
 
       // Scroll to bottom after render
@@ -160,6 +161,8 @@ export default function App() {
         return next
       })
       setLatestId(item.id)
+      setFlashIds(prev => new Set([...prev, item.id]))
+      setTimeout(() => setFlashIds(prev => { const n = new Set(prev); n.delete(item.id); return n }), 3000)
       setCounts(prev => ({ ...prev, p: prev.p + 1 }))
     })
 
@@ -277,6 +280,7 @@ export default function App() {
               <Card
                 item={c}
                 isLatest={c.id === latestId}
+                isFlash={flashIds.has(c.id)}
                 done={doneIds.has(c.id)}
                 spinning={!!spinning[c.id]}
                 onConfirm={() => doConfirm(c.id)}

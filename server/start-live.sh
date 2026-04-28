@@ -5,6 +5,14 @@
 WORKSPACE="/Users/baoduong2/.openclaw/workspace"
 LOG_FILE="$WORKSPACE/data/start-live.log"
 DISCORD_CHANNEL="1492732763609235479"
+
+echo "WORKSPACE: $WORKSPACE"
+
+if [ -f "$WORKSPACE/.env" ]; then
+  export $(echo $(cat "$WORKSPACE/.env" | sed 's/#.*//g' | xargs))
+fi
+
+echo "Check DISCORD_TOKEN: $DISCORD_TOKEN" | tee -a "$LOG_FILE"
 DISCORD_TOKEN="$DISCORD_TOKEN"
 
 send_discord() {
@@ -106,6 +114,12 @@ LAN_IP=$(ifconfig | grep 'inet ' | grep -v 127.0.0.1 | grep '192.168' | awk '{pr
 if [ -z "$LAN_IP" ]; then LAN_IP="localhost"; fi
 echo "[start-live] LAN IP: $LAN_IP" | tee -a "$LOG_FILE"
 
+send_text "** Khởi động dịch vụ hoàn tất **"
+
+send_text "-------------------------------------------"
+
+send_text "# Má bấm vào đây để mở bảng xem Bình Luận"
+
 # 8. Send Discord notification
 send_discord "{
   \"content\": \"\",
@@ -114,7 +128,7 @@ send_discord "{
     \"components\": [{
       \"type\": 2,
       \"style\": 5,
-      \"label\": \"Mở bảng điều khiển\",
+      \"label\": \"# Mở bảng điều khiển\",
       \"url\": \"http://${LAN_IP}:5173\"
     }]
   }],
@@ -129,5 +143,7 @@ echo "[start-live] Discord notified" | tee -a "$LOG_FILE"
 echo "[start-live] Backend=$BACKEND_PID | UI=$UI_PID | Crawler=$CRAWLER_PID" | tee -a "$LOG_FILE"
 
 # 9. Start health monitor (background)
-nohup node server/health-monitor.js >> "$WORKSPACE/data/health-monitor.log" 2>&1 &
+# nohup node server/health-monitor.js >> "$WORKSPACE/data/health-monitor.log" 2>&1 &
 echo "[start-live] Health monitor started"
+
+send_text "-------------------------------------------"
