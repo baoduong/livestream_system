@@ -42,9 +42,7 @@ async function sendDiscordMessage(message) {
   }
 }
 
-await sendDiscordMessage("Crawler aang");
-
-process.exit();
+await sendDiscordMessage("**Crawler đang khởi động...**");
 
 // Ensure profile dir exists
 if (!fs.existsSync(PROFILE_DIR)) {
@@ -160,7 +158,7 @@ async function pushComment(comment) {
 }
 
 // ─── Find live video URL → Business Suite Live Producer ─────────────────────
-async function findLiveVideoUrl() {
+async function findLiveVideoUrl(page) {
   if (process.argv[2]) return process.argv[2];
 
   if (FB_PAGE_TOKEN) {
@@ -176,6 +174,7 @@ async function findLiveVideoUrl() {
         await sendDiscordMessage(
           "⚠️Crawler: Không tìm thấy live video nào đang LIVE.",
         );
+        await simulateHuman(page);
         /* try {
           await fetch('http://localhost:18789/api/message', {
             method: 'POST',
@@ -534,7 +533,7 @@ async function main() {
   await simulateHuman(page);
 
   // ─── Navigate to live video ────────────────────────────────────────────
-  const videoUrl = await findLiveVideoUrl();
+  const videoUrl = await findLiveVideoUrl(page);
   console.log(`[crawler] Opening: ${videoUrl}`);
 
   await page.goto(videoUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
