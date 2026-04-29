@@ -20,23 +20,40 @@ db.exec(`
     phone TEXT,
     address TEXT,
     facebook_url TEXT,
-    avatar_url TEXT
+    avatar_url TEXT,
+    facebook_author_id TEXT,
+    blacklisted INTEGER NOT NULL DEFAULT 0,
+    blacklist_reason TEXT,
+    blacklisted_at TEXT,
+    first_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
 
   CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,
     customer_id INTEGER NOT NULL REFERENCES customers(id),
-    product_info TEXT NOT NULL,
-    shipped INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    amount INTEGER DEFAULT 0,
+    product_info TEXT,
+    note TEXT,
+    source TEXT,
     source_comment_id TEXT,
+    shipped INTEGER NOT NULL DEFAULT 0,
     created_date TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_date TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    updated_date TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    confirmed_at TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_orders_shipped ON orders(shipped);
   CREATE INDEX IF NOT EXISTS idx_orders_created_date ON orders(created_date);
   CREATE INDEX IF NOT EXISTS idx_orders_updated_date ON orders(updated_date);
+  CREATE INDEX IF NOT EXISTS idx_orders_code ON orders(code);
+  CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+  CREATE INDEX IF NOT EXISTS idx_customers_facebook_author_id ON customers(facebook_author_id);
+  CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
 
   CREATE TABLE IF NOT EXISTS live_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

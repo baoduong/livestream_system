@@ -212,21 +212,21 @@ function addCommentToFeed(item) {
   return comment
 }
 
-if (FB_PAGE_TOKEN && FB_PAGE_ID) {
-  fbPoller = new FacebookLivePoller({
-    pageAccessToken: FB_PAGE_TOKEN,
-    pageId: FB_PAGE_ID,
-    onComment: (item) => {
-      // Trigger crawler to fetch full comment data
-      broadcast('crawler-trigger', { trigger: true, source: 'poller', commentId: item.fbCommentId || null })
-    },
-    onError: (msg) => console.error(msg),
-  })
-  fbPoller.startAutoDetect()
-  console.log(`[fb] Facebook Live polling enabled (trigger only)`)
-} else {
-  console.log('[fb] Facebook Live disabled (set FB_PAGE_TOKEN + FB_PAGE_ID)')
-}
+// if (FB_PAGE_TOKEN && FB_PAGE_ID) {
+//   fbPoller = new FacebookLivePoller({
+//     pageAccessToken: FB_PAGE_TOKEN,
+//     pageId: FB_PAGE_ID,
+//     onComment: (item) => {
+//       // Trigger crawler to fetch full comment data
+//       broadcast('crawler-trigger', { trigger: true, source: 'poller', commentId: item.fbCommentId || null })
+//     },
+//     onError: (msg) => console.error(msg),
+//   })
+//   fbPoller.startAutoDetect()
+//   console.log(`[fb] Facebook Live polling enabled (trigger only)`)
+// } else {
+//   console.log('[fb] Facebook Live disabled (set FB_PAGE_TOKEN + FB_PAGE_ID)')
+// }
 
 // ─── Express app ─────────────────────────────────────────────────────────────
 const app = express()
@@ -592,6 +592,7 @@ app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode']
   const token = req.query['hub.verify_token']
   const challenge = req.query['hub.challenge']
+  console.log(`[webhook] Verification attempt: mode=${mode} token=${token}`)
   if (mode === 'subscribe' && token === FB_VERIFY_TOKEN) {
     console.log('[webhook] Verified!')
     return res.status(200).send(challenge)
@@ -601,6 +602,7 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', (req, res) => {
   const body = req.body
+  console.log(`[webhook] Received: object=${body.object} entry_count=${(body.entry || []).length}`)
   // Log raw payload for debugging
   import('fs').then(fs => {
     fs.appendFileSync('data/webhook.log', `[${new Date().toISOString()}] ${JSON.stringify(body)}\n`)

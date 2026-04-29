@@ -19,6 +19,21 @@ const FB_PAGE_ID = process.env.FB_PAGE_ID || '107811450656942'
 const FB_PAGE_TOKEN = process.env.FB_PAGE_TOKEN || ''
 const PROFILE_DIR = path.join(__dirname, '..', 'data', 'browser-profile')
 
+const DISCORD_CHANNEL="1492732763609235479"
+const DISCORD_TOKEN=process.env.DISCORD_TOKEN || ''
+
+function sendDiscordMessage(message) {
+  if (!DISCORD_TOKEN) return
+  fetch(`https://discord.com/api/v10/channels/${DISCORD_CHANNEL}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bot ${DISCORD_TOKEN}`
+    },
+    body: JSON.stringify({ content: message })
+  }).catch(() => {})
+}
+
 // Ensure profile dir exists
 if (!fs.existsSync(PROFILE_DIR)) {
   fs.mkdirSync(PROFILE_DIR, { recursive: true })
@@ -138,7 +153,9 @@ async function findLiveVideoUrl() {
               message: '⚠️ Crawler: Không tìm thấy live video nào đang LIVE.'
             })
           })
-        } catch {}
+        } catch {
+          sendDiscordMessage('⚠️Crawler: Không tìm thấy live video nào đang LIVE.')
+        }
         process.exit(1)
       }
 
