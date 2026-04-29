@@ -1,7 +1,7 @@
-// Facebook Live Comment Crawler v5 — Persistent Profile
+// Facebook Live Comment Dịch vụ đọc comment v5 — Persistent Profile
 // Uses persistent browser profile — login once, never expire
 //
-// Usage: node server/fb-crawler.js [video-url]
+// Usage: node server/fb-Dịch vụ đọc comment.js [video-url]
 // First run: opens FB login page → login manually → profile saved
 // Next runs: auto-logged in from saved profile
 
@@ -27,7 +27,6 @@ console.log("DISCORD_CHANNEL", DISCORD_CHANNEL)
 
 async function sendDiscordMessage(message) {
   if (!DISCORD_TOKEN) return;
-  console.log("Send message...");
   try {
     await fetch(`https://discord.com/api/v10/channels/${DISCORD_CHANNEL}/messages`, {
       method: "POST",
@@ -42,7 +41,7 @@ async function sendDiscordMessage(message) {
   }
 }
 
-await sendDiscordMessage("**Crawler đang khởi động...**");
+await sendDiscordMessage("**Dịch vụ đọc comment đang khởi động...**");
 
 // Ensure profile dir exists
 if (!fs.existsSync(PROFILE_DIR)) {
@@ -170,9 +169,9 @@ async function findLiveVideoUrl(page) {
       const livePost = liveData.data?.find((v) => v.status === "LIVE");
 
       if (!livePost) {
-        console.log("[crawler] No active live video found — exiting");
+        console.log("[Dịch vụ đọc comment] No active live video found — exiting");
         await sendDiscordMessage(
-          "⚠️Crawler: Không tìm thấy live video nào đang LIVE.",
+          "⚠️Dịch vụ đọc comment: Không tìm thấy live video nào đang LIVE.",
         );
         await simulateHuman(page);
         await sleep(3000);
@@ -182,7 +181,7 @@ async function findLiveVideoUrl(page) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'send', channel: 'discord', channelId: '1492732763609235479',
-              message: '⚠️ Crawler: Không tìm thấy live video nào đang LIVE.'
+              message: '⚠️ Dịch vụ đọc comment: Không tìm thấy live video nào đang LIVE.'
             })
           })
         } catch {
@@ -198,19 +197,17 @@ async function findLiveVideoUrl(page) {
 
       if (videoId) {
         const url = `https://business.facebook.com/live/producer/dashboard/${videoId}/COMMENTS/`;
-        console.log(
-          `[crawler] Auto-detected live: post=${livePost.id} video=${videoId}`,
-        );
+        await sendDiscordMessage( `[Dịch vụ đọc comment] Auto-detected live: post=${livePost.id} video=${videoId}`,);
         return url;
       }
 
-      console.log("[crawler] No active live video found");
+      console.log("[Dịch vụ đọc comment] No active live video found");
     } catch (err) {
-      console.log(`[crawler] Error finding live: ${err.message}`);
+      console.log(`[Dịch vụ đọc comment] Error finding live: ${err.message}`);
     }
   }
 
-  console.log("[crawler] No live video URL available — exiting");
+  console.log("[Dịch vụ đọc comment] No live video URL available — exiting");
   process.exit(1);
 }
 
@@ -312,8 +309,8 @@ async function simulateHuman(page) {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log("[crawler] FB Live Crawler v5 — Persistent Profile");
-  console.log(`[crawler] Profile: ${PROFILE_DIR}`);
+  console.log("[Dịch vụ đọc comment] FB Live Crawler v5 — Persistent Profile");
+  console.log(`[Dịch vụ đọc comment] Profile: ${PROFILE_DIR}`);
 
   // ─── Launch with persistent profile ────────────────────────────────────
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
@@ -462,7 +459,7 @@ async function main() {
   });
 
   // ─── Navigate & check login ────────────────────────────────────────────
-  console.log("[crawler] Checking login state...");
+  console.log("[Dịch vụ đọc comment] Checking login state...");
   await page.goto("https://www.facebook.com", {
     waitUntil: "domcontentloaded",
     timeout: 30000,
@@ -471,14 +468,14 @@ async function main() {
 
   const url = page.url();
   const title = await page.title();
-  console.log(`[crawler] After FB.com: url=${url} title=${title}`);
+  console.log(`[Dịch vụ đọc comment] After FB.com: url=${url} title=${title}`);
 
   if (url.includes("login") || title.toLowerCase().includes("log in")) {
     console.log(
-      "[crawler] ⚠️ NOT LOGGED IN — please login manually in the browser window",
+      "[Dịch vụ đọc comment] ⚠️ NOT LOGGED IN — please login manually in the browser window",
     );
     console.log(
-      "[crawler] Waiting for login... (navigate to facebook.com after login)",
+      "[Dịch vụ đọc comment] Waiting for login... (navigate to facebook.com after login)",
     );
 
     // Notify Discord
@@ -491,7 +488,7 @@ async function main() {
           channel: "discord",
           channelId: "1492732763609235479",
           message:
-            "⚠️ **Crawler: Cần đăng nhập Facebook**\nMở browser trên máy chạy crawler và đăng nhập. Session sẽ được lưu vĩnh viễn.",
+            "⚠️ **Dịch vụ đọc comment: Cần đăng nhập Facebook**\nMở browser trên máy chạy crawler và đăng nhập. Session sẽ được lưu vĩnh viễn.",
         }),
       });
     } catch {}
@@ -501,20 +498,20 @@ async function main() {
       await sleep(5000);
       const currentUrl = page.url();
       if (!currentUrl.includes("login") && !currentUrl.includes("checkpoint")) {
-        console.log("[crawler] ✅ Login detected! Profile saved.");
+        console.log("[Dịch vụ đọc comment] ✅ Login detected! Profile saved.");
         break;
       }
-      console.log("[crawler] Still waiting for login...");
+      console.log("[Dịch vụ đọc comment] Still waiting for login...");
     }
 
     await sleep(3000);
   }
 
-  console.log("[crawler] ✅ Logged in!");
+  console.log("[Dịch vụ đọc comment] ✅ Logged in!");
   await simulateHuman(page);
 
   // ─── Switch to Page account ─────────────────────────────────────────────
-  console.log("[crawler] Switching to Page account...");
+  console.log("[Dịch vụ đọc comment] Switching to Page account...");
   try {
     // Navigate to Business Suite to ensure Page context
     await page.goto(
@@ -527,35 +524,35 @@ async function main() {
     await sleep(rand(3000, 5000));
 
     const bsUrl = page.url();
-    console.log(`[crawler] Business Suite URL: ${bsUrl}`);
+    console.log(`[Dịch vụ đọc comment] Business Suite URL: ${bsUrl}`);
 
     // Check if we're on Business Suite (not redirected to login)
     if (bsUrl.includes("business.facebook.com")) {
-      console.log("[crawler] ✅ Switched to Page context via Business Suite");
+      console.log("[Dịch vụ đọc comment] ✅ Switched to Page context via Business Suite");
     } else {
       console.log(
-        "[crawler] ⚠️ Could not access Business Suite, continuing anyway...",
+        "[Dịch vụ đọc comment] ⚠️ Could not access Business Suite, continuing anyway...",
       );
     }
   } catch (err) {
-    console.log(`[crawler] ⚠️ Business Suite switch failed: ${err.message}`);
+    console.log(`[Dịch vụ đọc comment] ⚠️ Business Suite switch failed: ${err.message}`);
   }
   await simulateHuman(page);
 
   // ─── Navigate to live video ────────────────────────────────────────────
   const videoUrl = await findLiveVideoUrl(page);
-  console.log(`[crawler] Opening: ${videoUrl}`);
+  console.log(`[Dịch vụ đọc comment] Opening: ${videoUrl}`);
 
   await page.goto(videoUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
   await sleep(rand(3000, 6000));
 
   const afterUrl = page.url();
-  console.log(`[crawler] After nav: ${afterUrl}`);
+  console.log(`[Dịch vụ đọc comment] After nav: ${afterUrl}`);
 
   // Click comments tab
   try {
     await humanClick(page, "text=Bình luận", 5000);
-    console.log("[crawler] Clicked Bình luận");
+    console.log("[Dịch vụ đọc comment] Clicked Bình luận");
     await sleep(rand(1000, 2000));
   } catch {}
 
@@ -580,9 +577,9 @@ async function main() {
       ).length,
     };
   });
-  console.log(`[crawler] Page state:`, JSON.stringify(pageState, null, 2));
+  console.log(`[Dịch vụ đọc comment] Page state:`, JSON.stringify(pageState, null, 2));
 
-  console.log("[crawler] Watching for comments...");
+  console.log("[Dịch vụ đọc comment] Watching for comments...");
 
   // ─── Main loop ─────────────────────────────────────────────────────────
   let tick = 0;
@@ -622,7 +619,7 @@ async function main() {
 
         if (tick % 30 === 0) {
           console.log(
-            `[crawler] Stats: ${totalComments} seen, ${totalPushed} pushed, ${seenCommentIds.size} unique`,
+            `[Dịch vụ đọc comment] Stats: ${totalComments} seen, ${totalPushed} pushed, ${seenCommentIds.size} unique`,
           );
         }
 
@@ -636,7 +633,7 @@ async function main() {
     }
   }
 
-  console.log("[crawler] About to start loop...");
+  console.log("[Dịch vụ đọc comment] About to start loop...");
   loop().catch((err) => {
     console.error("[loop] Fatal:", err.message);
     process.exit(1);
@@ -644,7 +641,7 @@ async function main() {
 
   // ─── Graceful shutdown ─────────────────────────────────────────────────
   const shutdown = async () => {
-    console.log(`[crawler] Shutdown: ${totalPushed} comments pushed`);
+    console.log(`[Dịch vụ đọc comment] Shutdown: ${totalPushed} comments pushed`);
     try {
       await context.close();
     } catch {}
@@ -656,6 +653,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[crawler] Fatal:", err.message);
+  console.error("[Dịch vụ đọc comment] Fatal:", err.message);
   process.exit(1);
 });
