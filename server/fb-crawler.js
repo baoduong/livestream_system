@@ -1,29 +1,27 @@
-// Facebook Live Comment Crawler v4 — STEALTH mode
-// Full anti-detection: all cookies, realistic browser profile, human behavior
+// Facebook Live Comment Crawler v5 — Persistent Profile
+// Uses persistent browser profile — login once, never expire
 //
 // Usage: node server/fb-crawler.js [video-url]
-// Requires: FB_COOKIE_* in .env
+// First run: opens FB login page → login manually → profile saved
+// Next runs: auto-logged in from saved profile
 
 import { chromium } from 'playwright'
 import { config } from 'dotenv'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 config({ path: path.join(__dirname, '../.env') })
 
-const C_USER = process.env.FB_COOKIE_C_USER || ''
-const XS = process.env.FB_COOKIE_XS || ''
-const DATR = process.env.FB_COOKIE_DATR || ''
-const FR = process.env.FB_COOKIE_FR || ''
-const SB = process.env.FB_COOKIE_SB || ''
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001'
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '107811450656942'
 const FB_PAGE_TOKEN = process.env.FB_PAGE_TOKEN || ''
+const PROFILE_DIR = path.join(__dirname, '..', 'data', 'browser-profile')
 
-if (!C_USER || !XS) {
-  console.error('[crawler] Missing FB_COOKIE_C_USER or FB_COOKIE_XS in .env')
-  process.exit(1)
+// Ensure profile dir exists
+if (!fs.existsSync(PROFILE_DIR)) {
+  fs.mkdirSync(PROFILE_DIR, { recursive: true })
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -32,7 +30,6 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 function decodeUnicode(str) {
   return str.replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
 }
-// Gaussian-like random for more natural timing
 function gaussRand(mean, stddev) {
   const u1 = Math.random()
   const u2 = Math.random()
@@ -122,7 +119,6 @@ async function pushComment(comment) {
 async function findLiveVideoUrl() {
   if (process.argv[2]) return process.argv[2]
 
-  // Step 1: Get live post from Graph API
   if (FB_PAGE_TOKEN) {
     try {
       const liveRes = await fetch(
@@ -133,15 +129,12 @@ async function findLiveVideoUrl() {
 
       if (!livePost) {
         console.log('[crawler] No active live video found — exiting')
-        // Notify Discord
         try {
           await fetch('http://localhost:18789/api/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              action: 'send',
-              channel: 'discord',
-              channelId: '1492732763609235479',
+              action: 'send', channel: 'discord', channelId: '1492732763609235479',
               message: '⚠️ Crawler: Không tìm thấy live video nào đang LIVE.'
             })
           })
@@ -149,23 +142,21 @@ async function findLiveVideoUrl() {
         process.exit(1)
       }
 
-      if (livePost) {
-        // Step 2: Get video_id from post
-        const videoRes = await fetch(
-          `https://graph.facebook.com/${livePost.id}?fields=video&access_token=${FB_PAGE_TOKEN}`
-        )
-        const videoData = await videoRes.json()
-        const videoId = videoData.video?.id
+      const videoRes = await fetch(
+        `https://graph.facebook.com/${livePost.id}?fields=video&access_token=${FB_PAGE_TOKEN}`
+      )
+      const videoData = await videoRes.json()
+      const videoId = videoData.video?.id
 
-        if (videoId) {
-          const url = `https://business.facebook.com/live/producer/dashboard/${videoId}/COMMENTS/`
-          console.log(`[crawler] Auto-detected live: post=${livePost.id} video=${videoId}`)
-          return url
-        }
+      if (videoId) {
+        const url = `https://business.facebook.com/live/producer/dashboard/${videoId}/COMMENTS/`
+        console.log(`[crawler] Auto-detected live: post=${livePost.id} video=${videoId}`)
+        return url
       }
+
       console.log('[crawler] No active live video found')
     } catch (err) {
-      console.log('[crawler] No FB_PAGE_TOKEN — cannot auto-detect')
+      console.log(`[crawler] Error finding live: ${err.message}`)
     }
   }
 
@@ -177,7 +168,6 @@ async function findLiveVideoUrl() {
 async function humanMove(page, toX, toY) {
   const from = await page.evaluate(() => ({ x: window._mouseX || 640, y: window._mouseY || 450 }))
   const steps = rand(8, 15)
-  // Control point for Bézier
   const cpX = (from.x + toX) / 2 + rand(-100, 100)
   const cpY = (from.y + toY) / 2 + rand(-50, 50)
 
@@ -188,7 +178,6 @@ async function humanMove(page, toX, toY) {
     await page.mouse.move(x, y)
     await sleep(rand(5, 25))
   }
-  // Track position
   await page.evaluate(({ x, y }) => { window._mouseX = x; window._mouseY = y }, { x: toX, y: toY })
 }
 
@@ -198,13 +187,12 @@ async function humanClick(page, selector, timeout = 3000) {
   if (!el) return false
   const box = await el.boundingBox()
   if (!box) return false
-  // Click at random point within element (not center)
   const x = box.x + rand(Math.floor(box.width * 0.2), Math.floor(box.width * 0.8))
   const y = box.y + rand(Math.floor(box.height * 0.2), Math.floor(box.height * 0.8))
   await humanMove(page, x, y)
-  await sleep(rand(50, 200)) // hover before click
+  await sleep(rand(50, 200))
   await page.mouse.down()
-  await sleep(rand(40, 120)) // hold duration
+  await sleep(rand(40, 120))
   await page.mouse.up()
   return true
 }
@@ -214,54 +202,42 @@ async function simulateHuman(page) {
   const action = rand(1, 12)
   try {
     switch (action) {
-      case 1: // Scroll down slowly
-        await page.mouse.wheel(0, rand(30, 120))
-        break
-      case 2: // Scroll up slightly (overshoot correction)
-        await page.mouse.wheel(0, -rand(10, 50))
-        break
-      case 3: // Move mouse to random spot
-        await humanMove(page, rand(200, 900), rand(100, 700))
-        break
-      case 4: // Hover over comment area
+      case 1: await page.mouse.wheel(0, rand(30, 120)); break
+      case 2: await page.mouse.wheel(0, -rand(10, 50)); break
+      case 3: await humanMove(page, rand(200, 900), rand(100, 700)); break
+      case 4:
         await humanMove(page, rand(300, 700), rand(300, 600))
-        await sleep(rand(500, 2000)) // read comment
+        await sleep(rand(500, 2000))
         break
-      case 5: // Micro-movements (idle fidget)
+      case 5:
         for (let i = 0; i < rand(2, 4); i++) {
-          const dx = rand(-15, 15)
-          const dy = rand(-10, 10)
-          await page.mouse.move(640 + dx, 400 + dy)
+          await page.mouse.move(640 + rand(-15, 15), 400 + rand(-10, 10))
           await sleep(rand(100, 400))
         }
         break
-      case 6: // Pause (reading)
-        await sleep(rand(1000, 4000))
-        break
-      case 7: // Move to top-right (menu area)
+      case 6: await sleep(rand(1000, 4000)); break
+      case 7:
         await humanMove(page, rand(900, 1100), rand(40, 120))
         await sleep(rand(300, 800))
         break
-      case 8: // Slow scroll then stop
+      case 8:
         await page.mouse.wheel(0, rand(40, 80))
         await sleep(rand(200, 600))
         await page.mouse.wheel(0, rand(10, 30))
         break
-      default: // Do nothing (natural idle)
-        await sleep(rand(300, 1500))
-        break
+      default: await sleep(rand(300, 1500)); break
     }
   } catch {}
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('[crawler] FB Live Crawler v4 — STEALTH mode')
-  console.log(`[crawler] c_user: ${C_USER.slice(0, 8)}...`)
+  console.log('[crawler] FB Live Crawler v5 — Persistent Profile')
+  console.log(`[crawler] Profile: ${PROFILE_DIR}`)
 
-  // ─── Stealth browser launch ────────────────────────────────────────────
-  const browser = await chromium.launch({
-    headless: false, // headed mode — harder to detect
+  // ─── Launch with persistent profile ────────────────────────────────────
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+    headless: false,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--disable-features=IsolateOrigins,site-per-process',
@@ -272,20 +248,15 @@ async function main() {
       '--window-size=1440,900',
       '--disable-backgrounding-occluded-windows',
     ],
-  })
-
-  // ─── Realistic browser context ─────────────────────────────────────────
-  // Use latest Chrome UA matching real system
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
     locale: 'vi-VN',
     timezoneId: 'Asia/Ho_Chi_Minh',
     viewport: { width: 1440, height: 900 },
-    deviceScaleFactor: 2, // Retina
+    deviceScaleFactor: 2,
     hasTouch: false,
     colorScheme: 'light',
     permissions: ['notifications'],
-    geolocation: { latitude: 10.8231, longitude: 106.6297 }, // HCM
+    geolocation: { latitude: 10.8231, longitude: 106.6297 },
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
     extraHTTPHeaders: {
       'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
       'sec-ch-ua': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
@@ -294,45 +265,24 @@ async function main() {
     },
   })
 
-  // ─── All FB cookies ────────────────────────────────────────────────────
-  const cookies = [
-    { name: 'c_user', value: C_USER, domain: '.facebook.com', path: '/' },
-    { name: 'xs', value: XS, domain: '.facebook.com', path: '/' },
-  ]
-  if (DATR) cookies.push({ name: 'datr', value: DATR, domain: '.facebook.com', path: '/' })
-  if (FR) cookies.push({ name: 'fr', value: FR, domain: '.facebook.com', path: '/' })
-  if (SB) cookies.push({ name: 'sb', value: SB, domain: '.facebook.com', path: '/' })
-  await context.addCookies(cookies)
-
-  const page = await context.newPage()
+  const page = context.pages()[0] || await context.newPage()
 
   // ─── Anti-detection scripts ────────────────────────────────────────────
   await page.addInitScript(() => {
-    // Remove webdriver flag
     Object.defineProperty(navigator, 'webdriver', { get: () => false })
-
-    // Chrome runtime
     window.chrome = {
       runtime: { onConnect: { addListener: () => {} }, onMessage: { addListener: () => {} } },
       loadTimes: () => ({
-        commitLoadTime: Date.now() / 1000,
-        connectionInfo: 'h2',
+        commitLoadTime: Date.now() / 1000, connectionInfo: 'h2',
         finishDocumentLoadTime: Date.now() / 1000 + 0.5,
         finishLoadTime: Date.now() / 1000 + 1,
-        firstPaintAfterLoadTime: 0,
-        firstPaintTime: Date.now() / 1000 + 0.3,
-        navigationType: 'Other',
-        npnNegotiatedProtocol: 'h2',
-        requestTime: Date.now() / 1000 - 0.5,
-        startLoadTime: Date.now() / 1000 - 0.3,
-        wasAlternateProtocolAvailable: false,
-        wasFetchedViaSpdy: true,
-        wasNpnNegotiated: true,
+        firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000 + 0.3,
+        navigationType: 'Other', npnNegotiatedProtocol: 'h2',
+        requestTime: Date.now() / 1000 - 0.5, startLoadTime: Date.now() / 1000 - 0.3,
+        wasAlternateProtocolAvailable: false, wasFetchedViaSpdy: true, wasNpnNegotiated: true,
       }),
       csi: () => ({ pageT: Date.now(), startE: Date.now(), onloadT: Date.now() }),
     }
-
-    // Plugins
     Object.defineProperty(navigator, 'plugins', {
       get: () => {
         const arr = [
@@ -344,43 +294,24 @@ async function main() {
         return arr
       }
     })
-
-    // Languages
     Object.defineProperty(navigator, 'languages', { get: () => ['vi-VN', 'vi', 'en-US', 'en'] })
-
-    // Hardware concurrency
     Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 10 })
-
-    // Platform
     Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' })
-
-    // Screen
     Object.defineProperty(screen, 'colorDepth', { get: () => 30 })
-
-    // WebGL vendor
     const getParam = WebGLRenderingContext.prototype.getParameter
     WebGLRenderingContext.prototype.getParameter = function(param) {
-      if (param === 37445) return 'Apple' // UNMASKED_VENDOR
-      if (param === 37446) return 'Apple M1 Pro' // UNMASKED_RENDERER
+      if (param === 37445) return 'Apple'
+      if (param === 37446) return 'Apple M1 Pro'
       return getParam.call(this, param)
     }
-
-    // Notification permission
     Object.defineProperty(Notification, 'permission', { get: () => 'default' })
-
-    // Track mouse position for humanMove
-    window._mouseX = 640
-    window._mouseY = 450
-    document.addEventListener('mousemove', e => {
-      window._mouseX = e.clientX
-      window._mouseY = e.clientY
-    })
+    window._mouseX = 640; window._mouseY = 450
+    document.addEventListener('mousemove', e => { window._mouseX = e.clientX; window._mouseY = e.clientY })
   })
 
-  // ─── Block only heavy media (keep images for stealth) ──────────────────
+  // ─── Block heavy media ────────────────────────────────────────────────
   await page.route('**/*', route => {
     const url = route.request().url()
-    // Only block video streaming
     if (url.includes('.mp4') || url.includes('.m3u8') ||
         url.includes('/live_manifest') || url.includes('/dash_manifest') ||
         (url.includes('.ts') && url.includes('fbcdn'))) return route.abort()
@@ -397,7 +328,6 @@ async function main() {
       const ct = response.headers()['content-type'] || ''
       if (!ct.includes('json') && !ct.includes('text')) return
       const text = await response.text()
-      // Log all responses > 50KB to debug
       if (text.length > 50000) {
         console.log(`[response] ${url.slice(0, 80)} | size=${text.length}`)
       }
@@ -408,36 +338,83 @@ async function main() {
 
       for (const c of comments) {
         totalComments++
-        if (await pushComment(c)) {
-          totalPushed++
-        }
+        if (await pushComment(c)) totalPushed++
       }
     } catch {}
   })
 
-  // ─── Navigate ──────────────────────────────────────────────────────────
-  const videoUrl = await findLiveVideoUrl()
-  console.log(`[crawler] Opening: ${videoUrl}`)
-
-  // Go to FB homepage first (like a real user)
+  // ─── Navigate & check login ────────────────────────────────────────────
+  console.log('[crawler] Checking login state...')
   await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 })
   await sleep(rand(2000, 4000))
-  // Check login state
+
   const url = page.url()
   const title = await page.title()
   console.log(`[crawler] After FB.com: url=${url} title=${title}`)
-  if (url.includes('login') || title.toLowerCase().includes('log in')) {
-    console.log('[crawler] NOT LOGGED IN — cookies rejected')
-    await browser.close()
-    process.exit(1)
-  }
-  await simulateHuman(page) // natural idle on homepage
 
-  // Then navigate to live video
+  if (url.includes('login') || title.toLowerCase().includes('log in')) {
+    console.log('[crawler] ⚠️ NOT LOGGED IN — please login manually in the browser window')
+    console.log('[crawler] Waiting for login... (navigate to facebook.com after login)')
+
+    // Notify Discord
+    try {
+      await fetch('http://localhost:18789/api/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send', channel: 'discord', channelId: '1492732763609235479',
+          message: '⚠️ **Crawler: Cần đăng nhập Facebook**\nMở browser trên máy chạy crawler và đăng nhập. Session sẽ được lưu vĩnh viễn.'
+        })
+      })
+    } catch {}
+
+    // Wait for login — check every 5s if URL changed from login page
+    while (true) {
+      await sleep(5000)
+      const currentUrl = page.url()
+      if (!currentUrl.includes('login') && !currentUrl.includes('checkpoint')) {
+        console.log('[crawler] ✅ Login detected! Profile saved.')
+        break
+      }
+      console.log('[crawler] Still waiting for login...')
+    }
+
+    await sleep(3000)
+  }
+
+  console.log('[crawler] ✅ Logged in!')
+  await simulateHuman(page)
+
+  // ─── Switch to Page account ─────────────────────────────────────────────
+  console.log('[crawler] Switching to Page account...')
+  try {
+    // Navigate to Business Suite to ensure Page context
+    await page.goto(`https://business.facebook.com/latest/home?asset_id=${FB_PAGE_ID}`, {
+      waitUntil: 'domcontentloaded', timeout: 30000
+    })
+    await sleep(rand(3000, 5000))
+
+    const bsUrl = page.url()
+    console.log(`[crawler] Business Suite URL: ${bsUrl}`)
+
+    // Check if we're on Business Suite (not redirected to login)
+    if (bsUrl.includes('business.facebook.com')) {
+      console.log('[crawler] ✅ Switched to Page context via Business Suite')
+    } else {
+      console.log('[crawler] ⚠️ Could not access Business Suite, continuing anyway...')
+    }
+  } catch (err) {
+    console.log(`[crawler] ⚠️ Business Suite switch failed: ${err.message}`)
+  }
+  await simulateHuman(page)
+
+  // ─── Navigate to live video ────────────────────────────────────────────
+  const videoUrl = await findLiveVideoUrl()
+  console.log(`[crawler] Opening: ${videoUrl}`)
+
   await page.goto(videoUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await sleep(rand(3000, 6000))
 
-  // Check the actual URL we're on
   const afterUrl = page.url()
   console.log(`[crawler] After nav: ${afterUrl}`)
 
@@ -448,7 +425,7 @@ async function main() {
     await sleep(rand(1000, 2000))
   } catch {}
 
-  // Debug: capture page state
+  // Debug page state
   await sleep(3000)
   const pageState = await page.evaluate(() => {
     const btns = Array.from(document.querySelectorAll('[role="button"], button, div'))
@@ -456,8 +433,7 @@ async function main() {
       .slice(0, 20)
       .map(el => `${el.tagName}[aria-label="${el.getAttribute('aria-label')}" role="${el.getAttribute('role')}"] "${el.textContent.trim().slice(0, 30)}"`)
     return {
-      url: window.location.href,
-      title: document.title,
+      url: window.location.href, title: document.title,
       elements: btns,
       commentsCount: document.querySelectorAll('[data-pagelet*="Comment"], [aria-label*="comment" i]').length
     }
@@ -466,7 +442,7 @@ async function main() {
 
   console.log('[crawler] Watching for comments...')
 
-  // ─── Main loop: refresh with human-like timing ─────────────────────────
+  // ─── Main loop ─────────────────────────────────────────────────────────
   let tick = 0
   let refreshing = false
 
@@ -474,20 +450,14 @@ async function main() {
     if (refreshing) return
     refreshing = true
     try {
-      // Try primary selector
       const btn = await page.$('div[aria-label="Làm mới"]')
       if (btn) {
-        console.log('[refresh] Found Làm mới button, clicking...')
         await humanClick(page, 'div[aria-label="Làm mới"]', 3000)
-        console.log('[refresh] Clicked OK')
       } else {
-        console.log('[refresh] div[aria-label="Làm mới"] NOT FOUND')
-        // Try fallback
+        // Only log every 10 ticks to reduce noise
+        if (tick % 10 === 0) console.log('[refresh] Làm mới NOT FOUND')
         const fallback = await page.$('[aria-label*="refresh" i], [aria-label*="reload" i]')
-        if (fallback) {
-          console.log('[refresh] Using fallback button')
-          await humanClick(page, fallback, 3000)
-        }
+        if (fallback) await humanClick(page, fallback, 3000)
       }
     } catch (err) {
       console.error(`[refresh] Error: ${err.message}`)
@@ -500,25 +470,19 @@ async function main() {
     while (true) {
       try {
         tick++
-        if (tick % 5 === 0) console.log(`[loop] tick=${tick}`)
+        if (tick % 10 === 0) console.log(`[loop] tick=${tick}`)
 
-        // Refresh comments
         await refreshComments()
 
-        // Human simulation after refresh (random)
-        if (rand(1, 3) === 1) {
-          await simulateHuman(page)
-        }
+        if (rand(1, 3) === 1) await simulateHuman(page)
 
-        // Stats every 30 ticks
         if (tick % 30 === 0) {
           console.log(`[crawler] Stats: ${totalComments} seen, ${totalPushed} pushed, ${seenCommentIds.size} unique`)
         }
 
-        // Variable delay: mostly 2-3s, occasionally longer (human-like)
         const delay = rand(1, 20) === 1
-          ? rand(5000, 10000)  // 5% chance of long pause (distracted)
-          : gaussRand(2500, 400) // Normal: ~2.5s ± 0.4s
+          ? rand(5000, 10000)
+          : gaussRand(2500, 400)
         await sleep(delay)
       } catch (err) {
         console.error(`[loop] Error: ${err.message} at tick ${tick}`)
@@ -536,7 +500,7 @@ async function main() {
   // ─── Graceful shutdown ─────────────────────────────────────────────────
   const shutdown = async () => {
     console.log(`[crawler] Shutdown: ${totalPushed} comments pushed`)
-    try { await browser.close() } catch {}
+    try { await context.close() } catch {}
     process.exit(0)
   }
 

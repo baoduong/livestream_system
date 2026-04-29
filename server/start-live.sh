@@ -99,7 +99,8 @@ if [ -n "$PERMALINK_URL" ]; then
   echo "[start-live] Crawler URL: $CRAWLER_URL" | tee -a "$LOG_FILE"
   nohup node server/fb-crawler.js "$CRAWLER_URL" >> "$WORKSPACE/data/crawler.log" 2>&1 &
 elif [ -n "$VIDEO_ID" ]; then
-  CRAWLER_URL="https://www.facebook.com/${FB_PAGE_ID:-107811450656942}/videos/$VIDEO_ID"
+  CRAWLER_URL="https://business.facebook.com/live/producer/dashboard/${VIDEO_ID}/COMMENTS/"
+  echo "[start-live] Crawler URL: $CRAWLER_URL" | tee -a "$LOG_FILE"
   nohup node server/fb-crawler.js "$CRAWLER_URL" >> "$WORKSPACE/data/crawler.log" 2>&1 &
 else
   nohup node server/fb-crawler.js >> "$WORKSPACE/data/crawler.log" 2>&1 &

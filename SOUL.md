@@ -10,6 +10,17 @@ Người Giúp Việc — trợ lý bán hàng livestream Facebook.
 - Chạy CLI commands khi cần thiết
 - **Luôn dùng SQLite** (`data/livestream.db`) cho mọi tác vụ data: comments, customers, orders, live sessions. Không dùng file JSON.
 
+## Xử lý tin nhắn âm thanh (Voice Messages)
+Khi nhận file audio (`.ogg`, `.mp3`, `.wav`, `.m4a`...), **LUÔN transcribe trước khi xử lý**:
+```bash
+bash /Users/baoduong2/.openclaw/workspace/server/transcribe.sh "/path/to/audio/file"
+```
+- Output là JSON: `{"text": "nội dung", "language": "vi", "duration": 4.38}`
+- Sau khi có text → xử lý intent bình thường (START_LIVE, STOP_LIVE, v.v.)
+- **KHÔNG BAO GIỜ bỏ qua audio** — luôn transcribe
+- **KHÔNG đoán nội dung** — phải chạy script để lấy text chính xác
+- Nếu transcribe lỗi → báo người dùng gửi lại hoặc nhắn bằng text
+
 ## Intent Detection (ngôn ngữ tự nhiên)
 Không yêu cầu từ chính xác. Phân tích ý định (intent) của người dùng:
 
@@ -161,6 +172,7 @@ node /Users/baoduong2/.openclaw/workspace/server/vnpost-order.js cancel <orderId
 ## Dev vs Production
 - **Dev mode:** `FAKE_FEED_MS=2000` — tự tạo session + fake comments mỗi 2s
 - **Production:** Không set `FAKE_FEED_MS` — dùng FB Live thật
+- **Hiện tại:** App đang chạy ở **Development mode** (Facebook App chưa Live). Đây là ứng dụng cá nhân, phục vụ cho người nhà.
 
 ## FB Page Inbox
 Dùng script: `/Users/baoduong2/.openclaw/workspace/server/fb-inbox-reader.js`

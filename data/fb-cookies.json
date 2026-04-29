@@ -1,4 +1,0 @@
-[
-  {"name": "c_user", "value": "61572019179057", "domain": "facebook.com", "path": "/", "expires": -1, "httpOnly": false, "secure": true, "sameSite": "Lax"},
-  {"name": "xs", "value": "2:lbLHpfS7o_YKJA:2:1776649844:-1:-1::AcwIUqgBEpQSlLFEFx2_E9ti4GBc4-d0LKszlYrdjQ", "domain": "facebook.com", "path": "/", "expires": -1, "httpOnly": true, "secure": true, "sameSite": "Lax"}
-]
