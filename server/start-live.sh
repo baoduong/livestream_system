@@ -14,6 +14,7 @@ fi
 
 echo "Check DISCORD_TOKEN: $DISCORD_TOKEN" | tee -a "$LOG_FILE"
 DISCORD_TOKEN="$DISCORD_TOKEN"
+FB_PAGE_ID=$FB_PAGE_ID
 
 send_discord() {
   curl -s -X POST "https://discord.com/api/v10/channels/$DISCORD_CHANNEL/messages" \
@@ -58,21 +59,11 @@ fi
 # 4. Create session with live video
 # Wait for FB poller to find live video
 sleep 5
-LIVE_INFO=$(curl -s http://localhost:3001/api/fb/status 2>/dev/null)
-VIDEO_ID=$(echo "$LIVE_INFO" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('videoId',''))" 2>/dev/null)
-
-# Get permalink URL (real video URL, different from Graph API ID)
 TOKEN=$(grep FB_PAGE_TOKEN $WORKSPACE/.env | cut -d= -f2)
-PERMALINK_URL=""
-if [ -n "$VIDEO_ID" ] && [ -n "$TOKEN" ]; then
-  PERMALINK_URL=$(curl -s "https://graph.facebook.com/v21.0/$VIDEO_ID?fields=permalink_url&access_token=$TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('permalink_url',''))" 2>/dev/null)
-  echo "[start-live] Video ID: $VIDEO_ID | Permalink: $PERMALINK_URL" | tee -a "$LOG_FILE"
-fi
+LIVE_VIDEO_ID=$(curl -s "https://graph.facebook.com/v25.0/$FB_PAGE_ID/live_videos?access_token=$TOKEN" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); vids=d.get('data',[]); print(next((v['video']['id'] for v in vids if v.get('status') == 'LIVE'), ''))" 2>/dev/null)
 
-if [ -n "$VIDEO_ID" ]; then
-  curl -s -X POST http://localhost:3001/api/live-session/start -H 'Content-Type: application/json' -d "{\"fb_video_id\":\"$VIDEO_ID\"}" > /dev/null
-else
-  curl -s -X POST http://localhost:3001/api/live-session/start -H 'Content-Type: application/json' -d '{}' > /dev/null
+if [ -n "$LIVE_VIDEO_ID" ]; then
+  curl -s -X POST http://localhost:3001/api/live-session/start -H 'Content-Type: application/json' -d "{\"fb_video_id\":\"$LIVE_VIDEO_ID\"}" > /dev/null
 fi
 
 # 5. Start UI
@@ -88,27 +79,17 @@ done
 # 6. Start crawler with Business Suite Comments Dashboard
 echo "[start-live] Starting crawler..." | tee -a "$LOG_FILE"
 cd "$WORKSPACE"
-if [ -n "$PERMALINK_URL" ]; then
-  # Extract video ID from permalink (e.g. /xxx/videos/958824710072519 → 958824710072519)
-  REAL_VIDEO_ID=$(echo "$PERMALINK_URL" | grep -o '[0-9]\{6,\}$')
-  if [ -n "$REAL_VIDEO_ID" ]; then
-    CRAWLER_URL="https://business.facebook.com/live/producer/dashboard/${REAL_VIDEO_ID}/COMMENTS/"
-  else
-    CRAWLER_URL="https://www.facebook.com${PERMALINK_URL}"
-  fi
+if [ -n "$LIVE_VIDEO_ID" ]; then
+  CRAWLER_URL="https://business.facebook.com/live/producer/dashboard/${LIVE_VIDEO_ID}/COMMENTS/"
   echo "[start-live] Crawler URL: $CRAWLER_URL" | tee -a "$LOG_FILE"
   nohup node server/fb-crawler.js "$CRAWLER_URL" >> "$WORKSPACE/data/crawler.log" 2>&1 &
-elif [ -n "$VIDEO_ID" ]; then
-  CRAWLER_URL="https://business.facebook.com/live/producer/dashboard/${VIDEO_ID}/COMMENTS/"
-  echo "[start-live] Crawler URL: $CRAWLER_URL" | tee -a "$LOG_FILE"
-  nohup node server/fb-crawler.js "$CRAWLER_URL" >> "$WORKSPACE/data/crawler.log" 2>&1 &
+  CRAWLER_PID=$!
+  echo "[start-live] Crawler PID: $CRAWLER_PID" | tee -a "$LOG_FILE"
+  echo "[start-live] ✅ All services started!" | tee -a "$LOG_FILE"
 else
-  nohup node server/fb-crawler.js >> "$WORKSPACE/data/crawler.log" 2>&1 &
+  echo "[start-live] WARNING: No live video found, crawler not started" | tee -a "$LOG_FILE"
 fi
-CRAWLER_PID=$!
-echo "[start-live] Crawler PID: $CRAWLER_PID" | tee -a "$LOG_FILE"
 
-echo "[start-live] ✅ All services started!" | tee -a "$LOG_FILE"
 
 # 7. Detect LAN IP
 LAN_IP=$(ifconfig | grep 'inet ' | grep -v 127.0.0.1 | grep '192.168' | awk '{print $2}' | head -1)
