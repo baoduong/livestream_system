@@ -17,6 +17,7 @@ import {
 } from './db.js'
 import { printOrderReceipt, printTestPage, printShippingLabel, PRINTER_HOST, PRINTER_PORT } from './printer.js'
 import { FacebookLivePoller } from './facebook-live.js'
+import { FacebookEnricher } from './fb-enricher.js'
 import { mountAgentCliRoutes } from './agent-cli-routes.js'
 import { parseComment } from './comment-parser.js'
 import { extractCommentInfo } from './comment-extract.js'
@@ -157,6 +158,7 @@ if (FAKE_FEED_MS > 0) {
 
 // ─── Facebook Live integration ──────────────────────────────────────────────
 let fbPoller = null
+let fbEnricher = null
 
 function addCommentToFeed(item) {
   // Skip if FB comment already exists
@@ -173,26 +175,24 @@ function addCommentToFeed(item) {
     const existing = db.prepare('SELECT id FROM customers WHERE facebook_author_id = ?').get(item.facebookUserId)
     if (existing) {
       customerId = existing.id
-      // Update last_seen
       db.prepare("UPDATE customers SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(customerId)
     } else {
-      // New customer!
       const customer = createCustomer({
-        name: item.customerName,
+        name: item.customerName || 'Đang tải...',
         facebook_author_id: item.facebookUserId,
         avatar_url: item.avatarUrl || null,
         facebook_url: item.facebookUserId ? `https://facebook.com/${item.facebookUserId}` : null,
       })
       customerId = customer.id
       isNewCustomer = true
-      console.log(`[customer] New from live: #${customerId} ${item.customerName}`)
+      console.log(`[customer] New from live: #${customerId} ${item.customerName || '(unknown)'}`)
     }
   }
 
   const dbComment = addComment({
     ref,
     live_session_id: activeSessionId,
-    customer_name: item.customerName,
+    customer_name: item.customerName || 'Đang tải...',
     comment_text: item.commentText || '',
     avatar_url: item.avatarUrl || null,
     customer_id: customerId,
@@ -203,7 +203,6 @@ function addCommentToFeed(item) {
   })
   const comment = formatComment(dbComment)
   comment.isNewCustomer = isNewCustomer
-  // Check blacklist by facebook ID
   if (item.facebookUserId) {
     const bl = isBlacklistedByFacebookId(item.facebookUserId)
     if (bl) comment.blacklisted = true
@@ -212,21 +211,45 @@ function addCommentToFeed(item) {
   return comment
 }
 
-// if (FB_PAGE_TOKEN && FB_PAGE_ID) {
-//   fbPoller = new FacebookLivePoller({
-//     pageAccessToken: FB_PAGE_TOKEN,
-//     pageId: FB_PAGE_ID,
-//     onComment: (item) => {
-//       // Trigger crawler to fetch full comment data
-//       broadcast('crawler-trigger', { trigger: true, source: 'poller', commentId: item.fbCommentId || null })
-//     },
-//     onError: (msg) => console.error(msg),
-//   })
-//   fbPoller.startAutoDetect()
-//   console.log(`[fb] Facebook Live polling enabled (trigger only)`)
-// } else {
-//   console.log('[fb] Facebook Live disabled (set FB_PAGE_TOKEN + FB_PAGE_ID)')
-// }
+// Handle new comment from enricher (primary comment source)
+function handleEnricherComment(data) {
+  // data: { fbCommentId, userId, name, text, avatarUrl }
+  if (!activeSessionId) return
+
+  const item = {
+    fbCommentId: data.fbCommentId,
+    customerName: data.name,
+    commentText: data.text || '',
+    avatarUrl: data.avatarUrl || null,
+    facebookUserId: data.userId,
+    platform: 'facebook',
+  }
+  const comment = addCommentToFeed(item)
+  if (comment) console.log(`[enricher] Saved: ${data.name}: ${data.text}`)
+}
+
+if (FB_PAGE_TOKEN && FB_PAGE_ID) {
+  fbPoller = new FacebookLivePoller({
+    pageAccessToken: FB_PAGE_TOKEN,
+    pageId: FB_PAGE_ID,
+    onComment: (item) => {
+      // Poller as backup: save comments that enricher missed
+      if (!activeSessionId) return
+      if (!item.fbCommentId) return
+      // Skip if enricher already got this one
+      const shortId = item.fbCommentId.includes('_') ? item.fbCommentId.split('_').pop() : item.fbCommentId
+      if (fbEnricher?.isRunning() && fbEnricher.cache.has(shortId)) return
+      // Save with whatever info we have
+      item.customerName = item.customerName || 'Unknown'
+      const comment = addCommentToFeed(item)
+      if (comment) console.log(`[fb-backup] Saved missed comment: ${item.customerName}: ${item.commentText}`)
+    },
+    onError: (msg) => console.error(msg),
+  })
+  console.log(`[fb] Facebook Live poller configured (backup, pageId=${FB_PAGE_ID})`)
+} else {
+  console.log('[fb] Facebook Live disabled (set FB_PAGE_TOKEN + FB_PAGE_ID)')
+}
 
 // ─── Express app ─────────────────────────────────────────────────────────────
 const app = express()
@@ -630,6 +653,11 @@ app.get('/api/fb/status', (req, res) => {
     videoId: fbPoller?.getVideoId() || null,
     pageId: FB_PAGE_ID || null,
     activeSessionId,
+    enricher: {
+      running: fbEnricher?.isRunning() || false,
+      cacheSize: fbEnricher?.getCacheSize() || 0,
+      pending: fbEnricher?.getPendingCount() || 0,
+    },
   })
 })
 
@@ -637,17 +665,60 @@ app.post('/api/fb/start', async (req, res) => {
   if (!fbPoller) {
     return res.status(400).json({ error: 'fb_not_configured', message: 'Set FB_PAGE_TOKEN + FB_PAGE_ID' })
   }
+
+  // Detect live video
   const { videoId } = req.body || {}
-  if (videoId) {
-    await fbPoller.startWithVideoId(videoId)
-  } else {
-    await fbPoller.startAutoDetect()
+  let resolvedVideoId = videoId
+
+  if (!resolvedVideoId) {
+    const video = await fbPoller.findLiveVideo()
+    if (video) {
+      resolvedVideoId = video.id
+      console.log(`[fb] Detected live video: ${video.id} "${video.title || ''}" (${video.live_views || 0} viewers)`)
+    } else {
+      return res.json({ ok: false, error: 'no_live_video', message: 'No active live video found' })
+    }
   }
-  res.json({ ok: true, running: fbPoller.isRunning(), videoId: fbPoller.getVideoId() })
+
+  // Get actual FB video ID for Business Suite URL
+  let bsVideoId = resolvedVideoId
+  try {
+    const vRes = await fetch(`https://graph.facebook.com/v21.0/${resolvedVideoId}?fields=video&access_token=${FB_PAGE_TOKEN}`)
+    if (vRes.ok) {
+      const vData = await vRes.json()
+      if (vData.video?.id) bsVideoId = vData.video.id
+    }
+  } catch {}
+
+  // Start enricher as primary comment source
+  if (!fbEnricher?.isRunning()) {
+    fbEnricher = new FacebookEnricher({
+      pageId: FB_PAGE_ID,
+      pageAccessToken: FB_PAGE_TOKEN,
+      onComment: (data) => handleEnricherComment(data),
+      onError: (msg) => console.error(msg),
+    })
+    const ok = await fbEnricher.start(bsVideoId)
+    if (ok) {
+      console.log('[fb] Enricher started as primary comment source')
+    } else {
+      console.error('[fb] Enricher failed to start')
+    }
+  }
+
+  // Start poller as backup (60s interval, catches missed comments)
+  await fbPoller.startWithVideoId(resolvedVideoId)
+  console.log('[fb] Poller started as backup (60s interval)')
+
+  res.json({ ok: true, videoId: resolvedVideoId, bsVideoId, enricher: fbEnricher?.isRunning() || false })
 })
 
-app.post('/api/fb/stop', (req, res) => {
+app.post('/api/fb/stop', async (req, res) => {
   if (fbPoller) fbPoller.stop()
+  if (fbEnricher) {
+    await fbEnricher.stop()
+    fbEnricher = null
+  }
   res.json({ ok: true, running: false })
 })
 
