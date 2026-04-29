@@ -31,8 +31,8 @@ send_text "⏳ Đang khởi động dịch vụ..."
 echo "[start-live] Killing existing services..." | tee -a "$LOG_FILE"
 lsof -ti:3001 | xargs kill -9 2>/dev/null
 lsof -ti:5173 | xargs kill -9 2>/dev/null
-# Kill crawler if running
 pkill -f "fb-crawler.js" 2>/dev/null
+pkill -f "fb-enricher.js" 2>/dev/null
 sleep 1
 
 # 2. Start backend
@@ -59,8 +59,14 @@ fi
 # 4. Create session with live video
 # Wait for FB poller to find live video
 sleep 5
+echo "FB_PAGE_ID: $FB_PAGE_ID"
 TOKEN=$(grep FB_PAGE_TOKEN $WORKSPACE/.env | cut -d= -f2)
-LIVE_VIDEO_ID=$(curl -s "https://graph.facebook.com/v25.0/$FB_PAGE_ID/live_videos?access_token=$TOKEN" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); vids=d.get('data',[]); print(next((v['video']['id'] for v in vids if v.get('status') == 'LIVE'), ''))" 2>/dev/null)
+echo "TOKEN: $TOKEN"
+
+# LIVE_VIDEO_ID=$(curl -s "https://graph.facebook.com/v25.0/$FB_PAGE_ID/live_videos?fields=status%2Cvideo&access_token=$TOKEN" 2>/dev/null)
+LIVE_VIDEO_ID=$(curl -s "https://graph.facebook.com/v25.0/$FB_PAGE_ID/live_videos?fields=status%2Cvideo&access_token=$TOKEN" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); vids=d.get('data',[]); print(next((v['video']['id'] for v in vids if v.get('status') == 'LIVE'), ''))" 2>/dev/null)
+
+echo "FOUND LIVE_VIDEO_ID: $LIVE_VIDEO_ID"
 
 if [ -n "$LIVE_VIDEO_ID" ]; then
   curl -s -X POST http://localhost:3001/api/live-session/start -H 'Content-Type: application/json' -d "{\"fb_video_id\":\"$LIVE_VIDEO_ID\"}" > /dev/null
@@ -76,18 +82,17 @@ for i in $(seq 1 10); do
   sleep 1
 done
 
-# 6. Start crawler with Business Suite Comments Dashboard
-echo "[start-live] Starting crawler..." | tee -a "$LOG_FILE"
-cd "$WORKSPACE"
+# 6. Start FB comment services (enricher + poller via API)
+echo "[start-live] Starting FB comment enricher + poller..." | tee -a "$LOG_FILE"
 if [ -n "$LIVE_VIDEO_ID" ]; then
-  CRAWLER_URL="https://business.facebook.com/live/producer/dashboard/${LIVE_VIDEO_ID}/COMMENTS/"
-  echo "[start-live] Crawler URL: $CRAWLER_URL" | tee -a "$LOG_FILE"
-  nohup node server/fb-crawler.js "$CRAWLER_URL" >> "$WORKSPACE/data/crawler.log" 2>&1 &
-  CRAWLER_PID=$!
-  echo "[start-live] Crawler PID: $CRAWLER_PID" | tee -a "$LOG_FILE"
+  # Trigger enricher + poller start via backend API
+  FB_START=$(curl -s -X POST http://localhost:3001/api/fb/start 2>/dev/null)
+  echo "[start-live] FB start result: $FB_START" | tee -a "$LOG_FILE"
   echo "[start-live] ✅ All services started!" | tee -a "$LOG_FILE"
 else
-  echo "[start-live] WARNING: No live video found, crawler not started" | tee -a "$LOG_FILE"
+  # No live video yet — poller will auto-detect when live starts
+  echo "[start-live] WARNING: No live video found, enricher not started" | tee -a "$LOG_FILE"
+  echo "[start-live] Poller will auto-detect when live begins" | tee -a "$LOG_FILE"
 fi
 
 
@@ -122,7 +127,7 @@ send_discord "{
 }"
 
 echo "[start-live] Discord notified" | tee -a "$LOG_FILE"
-echo "[start-live] Backend=$BACKEND_PID | UI=$UI_PID | Crawler=$CRAWLER_PID" | tee -a "$LOG_FILE"
+echo "[start-live] Backend=$BACKEND_PID | UI=$UI_PID" | tee -a "$LOG_FILE"
 
 # 9. Start health monitor (background)
 # nohup node server/health-monitor.js >> "$WORKSPACE/data/health-monitor.log" 2>&1 &
