@@ -175,6 +175,7 @@ async function findLiveVideoUrl(page) {
           "⚠️Crawler: Không tìm thấy live video nào đang LIVE.",
         );
         await simulateHuman(page);
+        await sleep(3000);
         /* try {
           await fetch('http://localhost:18789/api/message', {
             method: 'POST',
@@ -263,37 +264,46 @@ async function simulateHuman(page) {
   try {
     switch (action) {
       case 1:
+        console.log("[simulate] Scrolling...");
         await page.mouse.wheel(0, rand(30, 120));
         break;
       case 2:
+        console.log("[simulate] Scrolling back...");
         await page.mouse.wheel(0, -rand(10, 50));
         break;
       case 3:
+        console.log("[simulate] Moving mouse...");
         await humanMove(page, rand(200, 900), rand(100, 700));
         break;
       case 4:
+        console.log("[simulate] Moving mouse again...");
         await humanMove(page, rand(300, 700), rand(300, 600));
         await sleep(rand(500, 2000));
         break;
       case 5:
         for (let i = 0; i < rand(2, 4); i++) {
+          console.log("[simulate] Fidgeting mouse...");
           await page.mouse.move(640 + rand(-15, 15), 400 + rand(-10, 10));
           await sleep(rand(100, 400));
         }
         break;
       case 6:
+        console.log("[simulate] Idle...");
         await sleep(rand(1000, 4000));
         break;
       case 7:
+        console.log("[simulate] Moving mouse more...");
         await humanMove(page, rand(900, 1100), rand(40, 120));
         await sleep(rand(300, 800));
         break;
       case 8:
+        console.log("[simulate] Scrolling more...");
         await page.mouse.wheel(0, rand(40, 80));
         await sleep(rand(200, 600));
         await page.mouse.wheel(0, rand(10, 30));
         break;
       default:
+        console.log("[simulate] Just chilling...");
         await sleep(rand(300, 1500));
         break;
     }
